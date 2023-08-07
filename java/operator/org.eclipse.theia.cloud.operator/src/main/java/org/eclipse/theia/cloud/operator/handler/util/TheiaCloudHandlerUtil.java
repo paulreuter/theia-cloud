@@ -19,7 +19,9 @@ package org.eclipse.theia.cloud.operator.handler.util;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
 
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -86,6 +88,32 @@ public final class TheiaCloudHandlerUtil {
 	OwnerReference serviceOwnerReference = createOwnerReference(sessionResourceName, sessionResourceUID);
 	LOGGER.info(formatLogMessage(correlationId, "Adding a new owner reference to " + item.getMetadata().getName()));
 	item.getMetadata().getOwnerReferences().add(serviceOwnerReference);
+	return item;
+    }
+
+    public static <T extends HasMetadata> T removeOwnerReferenceFromItem(String correlationId, String ownerName,
+	    String ownerUID, T item) {
+	for (Iterator<OwnerReference> i = item.getMetadata().getOwnerReferences().iterator(); i.hasNext();) {
+	    OwnerReference ownerReference = i.next();
+	    if (ownerName.equals(ownerReference.getName()) && ownerUID.equals(ownerReference.getUid()))
+		i.remove();
+	}
+	return item;
+    }
+
+    public static <T extends HasMetadata> T addLabelToItem(String correlationId, String key, String value, T item) {
+	LOGGER.info(formatLogMessage(correlationId,
+		"Adding label " + key + ": " + value + "to " + item.getMetadata().getName()));
+	if (item.getMetadata() == null) {
+	    LOGGER.trace(formatLogMessage(correlationId, "Item has no metadata! " + item.toString()));
+	    return item;
+	}
+	if (item.getMetadata().getLabels() == null) {
+	    LOGGER.trace(formatLogMessage(correlationId, "Item has no labels! " + item.toString()));
+
+	    item.getMetadata().setLabels(new HashMap<String, String>());
+	}
+	item.getMetadata().getLabels().put(key, value);
 	return item;
     }
 

@@ -39,11 +39,16 @@ import org.eclipse.theia.cloud.operator.handler.util.K8sUtil;
 import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudConfigMapUtil;
 import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudDeploymentUtil;
 import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudHandlerUtil;
+import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudIngressUtil;
+import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudInstanceUtil;
+import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudK8sUtil;
 import org.eclipse.theia.cloud.operator.handler.util.TheiaCloudServiceUtil;
 
 import com.google.inject.Inject;
 
+import io.fabric8.kubernetes.api.model.ConfigMap;
 import io.fabric8.kubernetes.api.model.Service;
+import io.fabric8.kubernetes.api.model.apps.Deployment;
 import io.fabric8.kubernetes.api.model.networking.v1.HTTPIngressPath;
 import io.fabric8.kubernetes.api.model.networking.v1.HTTPIngressRuleValue;
 import io.fabric8.kubernetes.api.model.networking.v1.Ingress;
@@ -61,6 +66,8 @@ import io.fabric8.kubernetes.client.NamespacedKubernetesClient;
 public class EagerStartSessionHandler implements SessionHandler {
 
     private static final Logger LOGGER = LogManager.getLogger(EagerStartSessionHandler.class);
+
+    public static final String LABEL_KEY = "session";
 
     @Inject
     private TheiaCloudClient client;
@@ -136,8 +143,11 @@ public class EagerStartSessionHandler implements SessionHandler {
 	try {
 	    client.kubernetes().apps().deployments()
 		    .withName(TheiaCloudDeploymentUtil.getDeploymentName(appDefinition.get(), instance))
-		    .edit(deployment -> TheiaCloudHandlerUtil.addOwnerReferenceToItem(correlationId,
-			    sessionResourceName, sessionResourceUID, deployment));
+		    .edit(deployment -> {
+			TheiaCloudHandlerUtil.addLabelToItem(correlationId, LABEL_KEY, sessionResourceUID, deployment);
+			return TheiaCloudHandlerUtil.addOwnerReferenceToItem(correlationId, sessionResourceName,
+				sessionResourceUID, deployment);
+		    });
 	} catch (KubernetesClientException e) {
 	    LOGGER.error(formatLogMessage(correlationId, "Error while editing deployment "
 		    + (appDefinitionID + TheiaCloudDeploymentUtil.DEPLOYMENT_NAME + instance)), e);
@@ -152,6 +162,15 @@ public class EagerStartSessionHandler implements SessionHandler {
 			.edit(configmap -> {
 			    configmap.setData(Collections
 				    .singletonMap(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, userEmail));
+			    TheiaCloudHandlerUtil.addLabelToItem(correlationId, LABEL_KEY, sessionResourceUID,
+				    configmap);
+			    return configmap;
+			});
+		client.kubernetes().configMaps()
+			.withName(TheiaCloudConfigMapUtil.getProxyConfigName(appDefinition.get(), instance))
+			.edit(configmap -> {
+			    TheiaCloudHandlerUtil.addLabelToItem(correlationId, LABEL_KEY, sessionResourceUID,
+				    configmap);
 			    return configmap;
 			});
 	    } catch (KubernetesClientException e) {
@@ -217,8 +236,12 @@ public class EagerStartSessionHandler implements SessionHandler {
 	/* add our session as owner to the service */
 	try {
 	    client.services().inNamespace(namespace).withName(serviceToUse.get().getMetadata().getName())
-		    .edit(service -> TheiaCloudHandlerUtil.addOwnerReferenceToItem(correlationId, sessionResourceName,
-			    sessionResourceUID, service));
+		    .edit(service -> {
+			TheiaCloudHandlerUtil.addLabelToItem(correlationId, LABEL_KEY, sessionResourceUID, service);
+			return TheiaCloudHandlerUtil.addOwnerReferenceToItem(correlationId, sessionResourceName,
+				sessionResourceUID, service);
+		    });
+
 	} catch (KubernetesClientException e) {
 	    LOGGER.error(formatLogMessage(correlationId,
 		    "Error while editing service " + (serviceToUse.get().getMetadata().getName())), e);
@@ -264,4 +287,119 @@ public class EagerStartSessionHandler implements SessionHandler {
 	return ingress;
     }
 
+    @Override
+    public boolean sessionDeleted(Session session, String correlationId) {
+	/* session information */
+	SessionSpec sessionSpec = session.getSpec();
+
+	/* find appDefinition for session */
+	String appDefinitionID = sessionSpec.getAppDefinition();
+
+	Optional<AppDefinition> appDefinition = client.appDefinitions().get(appDefinitionID);
+	if (appDefinition.isEmpty()) {
+	    LOGGER.error(formatLogMessage(correlationId, "No App Definition with name " + appDefinitionID + " found."));
+	    return false;
+	}
+	String appDefinitionResourceName = appDefinition.get().getMetadata().getName();
+	String appDefinitionResourceUID = appDefinition.get().getMetadata().getUid();
+
+	/* find ingress */
+	Optional<Ingress> ingress = K8sUtil.getExistingIngress(client.kubernetes(), client.namespace(),
+		appDefinitionResourceName, appDefinitionResourceUID);
+	if (ingress.isEmpty()) {
+	    LOGGER.error(
+		    formatLogMessage(correlationId, "No Ingress for app definition " + appDefinitionID + " found."));
+	    return false;
+	}
+
+	String sessionResourceName = session.getMetadata().getName();
+	String sessionResourceUID = session.getMetadata().getUid();
+
+	List<Service> existingServices = K8sUtil.getExistingServices(client.kubernetes(), client.namespace(),
+		appDefinitionResourceName, appDefinitionResourceUID, LABEL_KEY, sessionResourceUID);
+	Integer instanceNumber = null;
+	if (existingServices.isEmpty())
+	    LOGGER.trace(formatLogMessage(correlationId, "Session has no service."));
+	else
+	    instanceNumber = TheiaCloudServiceUtil.getId(correlationId, appDefinition.get(), existingServices.get(0));
+	List<ConfigMap> existingConfigMaps = K8sUtil.getExistingConfigMaps(client.kubernetes(), client.namespace(),
+		appDefinitionResourceName, appDefinitionResourceUID, LABEL_KEY, sessionResourceUID);
+	if (existingConfigMaps.isEmpty())
+	    LOGGER.trace(formatLogMessage(correlationId, "Session has no config maps."));
+	else if (instanceNumber == null)
+	    instanceNumber = TheiaCloudConfigMapUtil.getProxyId(correlationId, appDefinition.get(),
+		    existingConfigMaps.get(0));
+	List<Deployment> existingDeployments = K8sUtil.getExistingDeployments(client.kubernetes(), client.namespace(),
+		appDefinitionResourceName, appDefinitionResourceUID, LABEL_KEY, sessionResourceUID);
+	if (existingDeployments.isEmpty())
+	    LOGGER.trace(formatLogMessage(correlationId, "Session has no deployments."));
+	else if (instanceNumber == null)
+	    instanceNumber = TheiaCloudDeploymentUtil.getId(correlationId, appDefinition.get(),
+		    existingDeployments.get(0));
+
+	if (instanceNumber != null) {
+	    String path = ingressPathProvider.getPath(appDefinition.get(), instanceNumber);
+	    LOGGER.trace(formatLogMessage(correlationId, "Removing ingress rule for path: " + path));
+	    TheiaCloudIngressUtil.removeIngressRule(client.kubernetes(), client.namespace(), ingress.get(), path,
+		    correlationId);
+	} else
+	    LOGGER.error(formatLogMessage(correlationId, "Could not determine instance number for cleanup of session"));
+
+	long currentInstances = TheiaCloudK8sUtil.getCurrentInstancesNumber(client.kubernetes(), client.namespace(),
+		appDefinition.get().getSpec(), correlationId);
+
+	LOGGER.trace(formatLogMessage(correlationId, "Counting existing sessions: " + currentInstances + " found."));
+
+	if (currentInstances > appDefinition.get().getSpec().getMinInstances()) {
+	    // fully delete deployment
+	    for (Service service : existingServices) {
+		LOGGER.trace(formatLogMessage(correlationId, "Deleting service of session: " + service.toString()));
+		client.kubernetes().services().inNamespace(client.namespace()).delete(service);
+	    }
+	    // delete config maps
+	    for (ConfigMap configMap : existingConfigMaps) {
+		LOGGER.trace(
+			formatLogMessage(correlationId, "Deleting config maps of session: " + configMap.toString()));
+		client.kubernetes().configMaps().inNamespace(client.namespace()).delete(configMap);
+	    }
+	    // delete deployment
+	    for (Deployment deployment : existingDeployments) {
+		LOGGER.trace(
+			formatLogMessage(correlationId, "Deleting deployments of session: " + deployment.toString()));
+		client.kubernetes().apps().deployments().inNamespace(client.namespace()).delete(deployment);
+	    }
+	} else {
+	    for (Service service : existingServices) {
+		LOGGER.trace(formatLogMessage(correlationId,
+			"Removing ownership from service of session: " + service.toString()));
+		client.kubernetes().services().inNamespace(client.namespace()).withName(service.getMetadata().getName())
+			.edit(editedService -> {
+			    editedService.getMetadata().getLabels().remove(LABEL_KEY);
+			    return TheiaCloudHandlerUtil.removeOwnerReferenceFromItem(correlationId,
+				    sessionResourceName, sessionResourceUID, service);
+			});
+
+	    }
+	    for (ConfigMap configMap : existingConfigMaps) {
+		LOGGER.trace(formatLogMessage(correlationId,
+			"Removing ownership of config maps of session: " + configMap.toString()));
+		client.kubernetes().configMaps().withName(configMap.getMetadata().getName()).edit(configmap -> {
+		    if (configmap.getData().get(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST) != null)
+			configmap.getData().put(AddedHandlerUtil.FILENAME_AUTHENTICATED_EMAILS_LIST, "");
+		    configmap.getMetadata().getLabels().remove(LABEL_KEY);
+		    return configmap;
+		});
+	    }
+	    // restart container
+	    for (Deployment deployment : existingDeployments) {
+		LOGGER.trace(
+			formatLogMessage(correlationId, "Restarting deployments of session: " + deployment.toString()));
+		deployment.getMetadata().getLabels().remove(LABEL_KEY);
+		client.kubernetes().apps().deployments().inNamespace(client.namespace())
+			.withName(deployment.getMetadata().getName()).rolling().restart();
+	    }
+
+	}
+	return true;
+    }
 }

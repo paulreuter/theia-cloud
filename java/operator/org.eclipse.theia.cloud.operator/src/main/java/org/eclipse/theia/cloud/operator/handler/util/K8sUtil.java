@@ -87,6 +87,24 @@ public final class K8sUtil {
 		client.configMaps().inNamespace(namespace).list().getItems());
     }
 
+    public static List<Service> getExistingServices(NamespacedKubernetesClient client, String namespace,
+	    String ownerName, String ownerUid, String labelKey, String labelValue) {
+	return getExistingTypes(client, namespace, ownerName, ownerUid,
+		client.services().inNamespace(namespace).withLabel(labelKey, labelValue).list().getItems());
+    }
+
+    public static List<Deployment> getExistingDeployments(NamespacedKubernetesClient client, String namespace,
+	    String ownerName, String ownerUid, String labelKey, String labelValue) {
+	return getExistingTypes(client, namespace, ownerName, ownerUid,
+		client.apps().deployments().inNamespace(namespace).withLabel(labelKey, labelValue).list().getItems());
+    }
+
+    public static List<ConfigMap> getExistingConfigMaps(NamespacedKubernetesClient client, String namespace,
+	    String ownerName, String ownerUid, String labelKey, String labelValue) {
+	return getExistingTypes(client, namespace, ownerName, ownerUid,
+		client.configMaps().inNamespace(namespace).withLabel(labelKey, labelValue).list().getItems());
+    }
+
     private static <T extends HasMetadata> List<T> getExistingTypes(NamespacedKubernetesClient client, String namespace,
 	    String ownerName, String ownerUid, List<T> items) {
 	return getExistingTypesStream(client, namespace, ownerName, ownerUid, items)//
