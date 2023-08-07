@@ -19,6 +19,7 @@ package org.eclipse.theia.cloud.operator.handler.util;
 import static org.eclipse.theia.cloud.common.util.LogMessageUtil.formatLogMessage;
 import static org.eclipse.theia.cloud.common.util.NamingUtil.asValidName;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Function;
@@ -51,11 +52,25 @@ public final class TheiaCloudHandlerUtil {
 
     public static <T extends HasMetadata> Set<Integer> computeIdsOfMissingItems(int instances, List<T> existingItems,
 	    Function<T, Integer> getId) {
-	Set<Integer> missing = IntStream.rangeClosed(1, instances).boxed().collect(Collectors.toSet());
+	List<Integer> missing = IntStream.rangeClosed(1, instances).boxed().collect(Collectors.toList());
 	existingItems.stream()//
 		.map(getId)//
-		.forEach(missing::remove);
-	return missing;
+		.forEach(id -> {
+		    if (id > instances && missing.size() > 0)
+			missing.remove(missing.size() - 1);
+		    else
+			missing.remove(id);
+		});
+	return new HashSet<Integer>(missing);
+    }
+
+    public static <T extends HasMetadata> Set<Integer> computeIdsOfMissingItems(Set<Integer> expectedInstances,
+	    List<T> existingItems, Function<T, Integer> getId) {
+	Set<Integer> retVal = new HashSet<Integer>(expectedInstances);
+	existingItems.stream()//
+		.map(getId)//
+		.forEach(retVal::remove);
+	return retVal;
     }
 
     public static String getAppSelector(AppDefinition appDefinition, int instance) {

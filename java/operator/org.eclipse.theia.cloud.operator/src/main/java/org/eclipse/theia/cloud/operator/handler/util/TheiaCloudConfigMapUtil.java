@@ -78,14 +78,14 @@ public final class TheiaCloudConfigMapUtil {
     }
 
     public static Set<Integer> computeIdsOfMissingProxyConfigMaps(AppDefinition appDefinition, String correlationId,
-	    int instances, List<ConfigMap> existingItems) {
-	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(instances, existingItems,
+	    Set<Integer> expectedIds, List<ConfigMap> existingItems) {
+	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(expectedIds, existingItems,
 		service -> getProxyId(correlationId, appDefinition, service));
     }
 
     public static Set<Integer> computeIdsOfMissingEmailConfigMaps(AppDefinition appDefinition, String correlationId,
-	    int instances, List<ConfigMap> existingItems) {
-	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(instances, existingItems,
+		Set<Integer> expectedIds, List<ConfigMap> existingItems) {
+	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(expectedIds, existingItems,
 		service -> getEmailId(correlationId, appDefinition, service));
     }
 

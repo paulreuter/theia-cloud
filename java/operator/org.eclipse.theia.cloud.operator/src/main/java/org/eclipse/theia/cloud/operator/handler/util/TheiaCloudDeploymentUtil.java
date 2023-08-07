@@ -73,8 +73,8 @@ public final class TheiaCloudDeploymentUtil {
     }
 
     public static Set<Integer> computeIdsOfMissingDeployments(AppDefinition appDefinition, String correlationId,
-	    int instances, List<Deployment> existingItems) {
-	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(instances, existingItems,
+	    Set<Integer> expectedIds, List<Deployment> existingItems) {
+	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(expectedIds, existingItems,
 		service -> getId(correlationId, appDefinition, service));
     }
 }

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -63,9 +64,22 @@ public final class TheiaCloudServiceUtil {
 	return null;
     }
 
+	public static Set<Integer> computeIdsOfExistingServices(AppDefinition appDefinition, String correlationId, 
+		List<Service> existingServices) {
+		return existingServices.stream()//
+			.map(service-> getId(correlationId, appDefinition, service))//
+			.collect(Collectors.toSet());
+	}
+
     public static Set<Integer> computeIdsOfMissingServices(AppDefinition appDefinition, String correlationId,
 	    int instances, List<Service> existingItems) {
 	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(instances, existingItems,
+		service -> getId(correlationId, appDefinition, service));
+    }
+
+    public static Set<Integer> computeIdsOfMissingServices(AppDefinition appDefinition, String correlationId,
+	    Set<Integer> expectedIds, List<Service> existingItems) {
+	return TheiaCloudHandlerUtil.computeIdsOfMissingItems(expectedIds, existingItems,
 		service -> getId(correlationId, appDefinition, service));
     }
 
