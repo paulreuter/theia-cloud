@@ -31,6 +31,8 @@ import org.eclipse.theia.cloud.common.k8s.resource.Session;
 import org.eclipse.theia.cloud.common.k8s.resource.SessionSpec;
 import org.eclipse.theia.cloud.common.util.JavaUtil;
 import org.eclipse.theia.cloud.operator.TheiaCloudArguments;
+import org.eclipse.theia.cloud.operator.handler.BandwidthLimiter;
+import org.eclipse.theia.cloud.operator.handler.DeploymentTemplateReplacements;
 import org.eclipse.theia.cloud.operator.handler.IngressPathProvider;
 import org.eclipse.theia.cloud.operator.handler.SessionHandler;
 import org.eclipse.theia.cloud.operator.handler.util.K8sUtil;
@@ -69,6 +71,12 @@ public class EagerStartSessionHandler implements SessionHandler {
     @Inject
     protected TheiaCloudArguments arguments;
 
+    @Inject
+    protected BandwidthLimiter bandwidthLimiter;
+
+    @Inject
+    protected DeploymentTemplateReplacements deploymentReplacements;
+
     @Override
     public boolean sessionAdded(Session session, String correlationId) {
 	SessionSpec spec = session.getSpec();
@@ -99,6 +107,9 @@ public class EagerStartSessionHandler implements SessionHandler {
 		    formatLogMessage(correlationId, "No Ingress for app definition " + appDefinitionID + " found."));
 	    return false;
 	}
+
+	if (!ensureInstances(appDefinition.get(), correlationId))
+	    return false;
 
 	/* get a service to use */
 	Entry<Optional<Service>, Boolean> reserveServiceResult = reserveService(client.kubernetes(), client.namespace(),
@@ -176,6 +187,14 @@ public class EagerStartSessionHandler implements SessionHandler {
 	}
 
 	return true;
+    }
+
+    private boolean ensureInstances(AppDefinition appDefinition, String correlationId) {
+	long currentInstances = TheiaCloudK8sUtil.getCurrentInstancesNumber(client.kubernetes(), client.namespace(),
+		appDefinition.getSpec(), correlationId);
+	int requestedInstances = (int) Math.max(currentInstances, appDefinition.getSpec().getMaxInstances());
+	return TheiaCloudInstanceUtil.ensureInstances(appDefinition, client, deploymentReplacements, bandwidthLimiter,
+		ingressPathProvider, correlationId, requestedInstances, false);
     }
 
     protected synchronized Entry<Optional<Service>, Boolean> reserveService(NamespacedKubernetesClient client,

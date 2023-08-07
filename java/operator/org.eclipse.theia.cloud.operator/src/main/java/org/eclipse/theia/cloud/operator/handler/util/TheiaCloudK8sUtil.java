@@ -50,18 +50,22 @@ public final class TheiaCloudK8sUtil {
 		    formatLogMessage(correlationId, "The App Definition does not have a name: " + appDefinitionSpec));
 	    return true;
 	}
+	long currentInstances = getCurrentInstancesNumber(client, namespace, appDefinitionSpec, correlationId);
+	return currentInstances > appDefinitionSpec.getMaxInstances();
+    }
 
-	long currentInstances = client.resources(Session.class, SessionSpecResourceList.class).inNamespace(namespace)
-		.list().getItems().stream()//
+    public static long getCurrentInstancesNumber(NamespacedKubernetesClient client, String namespace,
+	    AppDefinitionSpec appDefinitionSpec, String correlationId) {
+	return client.resources(Session.class, SessionSpecResourceList.class).inNamespace(namespace).list().getItems()
+		.stream()//
 		.filter(w -> {
 		    String sessionAppDefinition = w.getSpec().getAppDefinition();
-		    boolean result = appDefinitionName.equals(sessionAppDefinition);
+		    boolean result = appDefinitionSpec.getName().equals(sessionAppDefinition);
 		    LOGGER.trace(formatLogMessage(correlationId, "Counting instances of app definition "
 			    + appDefinitionSpec.getName() + ": Is " + w.getSpec() + " of app definition? " + result));
 		    return result;
 		})//
 		.count();
-	return currentInstances > appDefinitionSpec.getMaxInstances();
     }
 
     public static String extractIdFromName(ObjectMeta metadata) {
